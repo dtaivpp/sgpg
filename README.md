@@ -4,7 +4,7 @@
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 ![mypy strict](https://img.shields.io/badge/mypy-strict-blue)
 ![linted with ruff](https://img.shields.io/badge/lint-ruff-black)
-![117 tests](https://img.shields.io/badge/tests-117%20passing-brightgreen)
+![118 tests](https://img.shields.io/badge/tests-118%20passing-brightgreen)
 
 **GPG-encrypted messaging over Signal, for people who already trust GPG more than they trust any app's crypto.**
 
@@ -295,7 +295,7 @@ src/sgpg/
 
 ```bash
 uv sync --group dev
-uv run pytest                # 117 tests, against an isolated disposable GnuPG keyring
+uv run pytest                # 118 tests, against an isolated disposable GnuPG keyring
 uv run ruff check .          # lint, incl. flake8-bandit security rules
 uv run ruff format --check .
 uv run mypy                  # strict
