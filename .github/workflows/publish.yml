@@ -89,4 +89,9 @@ jobs:
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26 # v1.14.2
+        # Not SHA-pinned like the rest of this workflow: this action runs as
+        # a Docker container whose image tag is resolved from the git ref,
+        # and GHCR only has images published for release tags, not arbitrary
+        # commit SHAs -- pinning to a SHA here 404s on `docker pull`.
+        # release/v1 is PyPA's own officially-documented floating ref for it.
+        uses: pypa/gh-action-pypi-publish@release/v1
