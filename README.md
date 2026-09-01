@@ -78,9 +78,18 @@ No `/tmp/message.txt`, ever. `crypto/gpg.py` doesn't even `import tempfile` — 
 Requires `gpg` and `signal-cli` on `PATH`, and Python 3.11+.
 
 ```bash
-brew install gnupg signal-cli uv    # macOS; see signal-cli's docs for Linux
-uv sync --group dev
+brew install gnupg signal-cli    # macOS; see each project's own docs for Linux
 ```
+
+Then install `sgpg` itself from [PyPI](https://pypi.org/project/sgpg/) as an isolated CLI tool, rather than into some other project's environment:
+
+```bash
+uv tool install sgpg   # or: pipx install sgpg  /  pip install --user sgpg
+```
+
+(Contributing to `sgpg` itself instead? See [Development](#development) below for the local clone + `uv sync --group dev` setup.)
+
+> **Keep `signal-cli` up to date.** Signal changes its server-side protocol over time and doesn't officially support third-party clients — an old `signal-cli` can silently start failing to send or receive with no change on your end at all. Periodically run `brew upgrade signal-cli` (or your platform's equivalent). `sgpg doctor` prints the installed version so a stale one is easy to spot.
 
 **1. Link `signal-cli` to your existing Signal account.** Do this yourself, in your own terminal — it needs your phone, and the linking URI is a sensitive credential that should never leave your machine (e.g. via an online QR generator):
 
@@ -298,7 +307,10 @@ Tests never touch your real GnuPG keyring or spawn a real `signal-cli daemon` �
 
 ```
 ✓ gpg found: gpg (GnuPG) 2.5.21
-✓ signal-cli found
+✓ signal-cli found: signal-cli 0.14.7
+  Signal changes its server-side protocol over time and doesn't officially
+  support third-party clients -- if sending/receiving suddenly stops working,
+  update signal-cli before looking anywhere else.
 ✓ Signal daemon reachable
 
 Identity:

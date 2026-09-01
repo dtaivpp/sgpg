@@ -31,6 +31,7 @@ __all__ = [
     "daemon_is_running",
     "daemon_session",
     "find_signal_cli_binary",
+    "signal_cli_version",
     "spawn_daemon",
 ]
 
@@ -54,6 +55,25 @@ def find_signal_cli_binary() -> str:
     if not path:
         raise SignalCliNotFoundError("signal-cli not found on PATH")
     return path
+
+
+async def signal_cli_version(binary: str | None = None) -> str:
+    """Report the installed signal-cli version.
+
+    Signal's own server-side protocol changes over time, and Signal Inc.
+    doesn't officially support third-party clients -- an old signal-cli
+    can start silently failing to send/receive with no local code change
+    at all. Surfacing the version (see `sgpg doctor`) makes that
+    diagnosable instead of mysterious.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        binary or find_signal_cli_binary(),
+        "--version",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout_data, _ = await proc.communicate()
+    return stdout_data.decode("utf-8", errors="replace").strip()
 
 
 class SignalClient:

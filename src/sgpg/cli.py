@@ -35,6 +35,7 @@ from sgpg.signal.client import (
     connect,
     daemon_session,
     find_signal_cli_binary,
+    signal_cli_version,
 )
 from sgpg.signal.messages import SignalContact
 
@@ -297,7 +298,12 @@ async def _doctor_check_binaries(opts: GlobalOptions) -> GPG | None:
 
     try:
         find_signal_cli_binary()
-        console.print("[green]✓[/green] signal-cli found")
+        console.print(f"[green]✓[/green] signal-cli found: {await signal_cli_version()}")
+        console.print(
+            "  [dim]Signal changes its server-side protocol over time and doesn't "
+            "officially support third-party clients -- if sending/receiving suddenly "
+            "stops working, update signal-cli before looking anywhere else.[/dim]"
+        )
     except SignalCliNotFoundError:
         console.print("[red]✗[/red] signal-cli not found on PATH")
 
@@ -308,7 +314,11 @@ async def _doctor_check_binaries(opts: GlobalOptions) -> GPG | None:
         except OSError:
             console.print("[red]✗[/red] Signal daemon socket present but not reachable")
     else:
-        console.print(f"[yellow]![/yellow] no Signal daemon socket at {opts.socket_path}")
+        console.print(
+            "[yellow]![/yellow] no Signal daemon running right now -- expected unless "
+            "you're mid-session; sgpg starts one on demand for send/chat/etc. "
+            f"(socket: {opts.socket_path})"
+        )
     return gpg
 
 

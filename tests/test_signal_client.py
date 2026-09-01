@@ -158,3 +158,17 @@ async def test_daemon_session_stops_daemon_even_on_timeout(
         async with client.daemon_session(socket_path, timeout=0.1, poll_interval=0.02):
             pass
     assert fake_proc.terminated
+
+
+@pytest.mark.asyncio
+async def test_signal_cli_version_reports_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeVersionProcess:
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"signal-cli 0.14.7\n", b""
+
+    async def fake_exec(*_args: object, **_kwargs: object) -> _FakeVersionProcess:
+        return _FakeVersionProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    version = await client.signal_cli_version(binary="signal-cli")
+    assert version == "signal-cli 0.14.7"
