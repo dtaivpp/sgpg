@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "GPG-encrypted messaging over Signal. GPG owns keys and crypto; Signal is transport only."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 dependencies = [
     "typer>=0.12",
     "rich>=13.7",
