@@ -1,0 +1,65 @@
+<svg width="1200" height="320" viewBox="0 0 1200 320" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+  <defs>
+    <linearGradient id="accentGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#34d399" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#34d399" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1.5" fill="#ffffff" opacity="0.035"/>
+    </pattern>
+    <clipPath id="windowClip">
+      <rect x="1" y="1" width="1198" height="318" rx="18" ry="18"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#windowClip)">
+    <rect x="0" y="0" width="1200" height="320" fill="#0a0e17"/>
+    <circle cx="980" cy="70" r="260" fill="url(#glow1)"/>
+    <circle cx="1120" cy="280" r="220" fill="url(#glow2)"/>
+    <rect x="0" y="0" width="1200" height="320" fill="url(#dots)"/>
+    <rect x="0" y="0" width="1200" height="48" fill="#11151f"/>
+    <line x1="0" y1="48" x2="1200" y2="48" stroke="#1e2330" stroke-width="1"/>
+
+    <circle cx="30" cy="24" r="6" fill="#ff5f57"/>
+    <circle cx="52" cy="24" r="6" fill="#febc2e"/>
+    <circle cx="74" cy="24" r="6" fill="#28c840"/>
+    <text x="600" y="29" font-size="13" fill="#5b6472" text-anchor="middle">alice@mac ~ sgpg</text>
+
+    <!-- lock icon -->
+    <g transform="translate(84,116)">
+      <path d="M12 34 V22 a20 20 0 0 1 40 0 V34" fill="none" stroke="url(#accentGrad)" stroke-width="7" stroke-linecap="round"/>
+      <rect x="2" y="34" width="60" height="46" rx="9" fill="url(#accentGrad)"/>
+      <circle cx="32" cy="53" r="5.5" fill="#0a0e17"/>
+      <rect x="28.5" y="57" width="7" height="14" rx="2.5" fill="#0a0e17"/>
+    </g>
+
+    <!-- wordmark -->
+    <text x="180" y="168" font-size="72" font-weight="700" fill="#f5f7fa">sgpg<tspan fill="#38bdf8"></tspan></text>
+    <rect x="358" y="106" width="24" height="58" fill="url(#accentGrad)">
+      <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.45;0.5;0.95;1" dur="1.6s" repeatCount="indefinite"/>
+    </rect>
+
+    <text x="182" y="205" font-size="21" fill="#8b93a7">GPG-encrypted messaging over Signal.</text>
+    <text x="182" y="231" font-size="15" fill="#525a68">GPG owns keys and cryptography. Signal is transport only.</text>
+
+    <text x="182" y="274" font-size="17" fill="#c9d1d9"><tspan fill="#38bdf8">$</tspan> echo &quot;ship it&quot; | sgpg send alice</text>
+    <text x="182" y="298" font-size="17" fill="#34d399">✓ sent to alice</text>
+
+    <!-- right column: invariants -->
+    <line x1="808" y1="88" x2="808" y2="256" stroke="#1e2330" stroke-width="1"/>
+    <text x="848" y="118" font-size="12" letter-spacing="2" fill="#3d4452">SECURITY MODEL</text>
+    <text x="848" y="160" font-size="17" fill="#c9d1d9"><tspan fill="#34d399">✓</tspan> Keys stay in GPG</text>
+    <text x="848" y="196" font-size="17" fill="#c9d1d9"><tspan fill="#34d399">✓</tspan> Plaintext never on disk</text>
+    <text x="848" y="232" font-size="17" fill="#c9d1d9"><tspan fill="#34d399">✓</tspan> Only trusted crypto</text>
+  </g>
+
+  <rect x="1" y="1" width="1198" height="318" rx="18" ry="18" fill="none" stroke="#232838" stroke-width="1.5"/>
+</svg>
