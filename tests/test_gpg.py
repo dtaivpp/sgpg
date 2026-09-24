@@ -44,6 +44,30 @@ def test_zero_overwrites_a_bytearray_in_place() -> None:
     assert buf == bytearray(len(buf))
 
 
+class TestBaseEnvGpgTty:
+    """A missing/stale GPG_TTY makes gpg point pinentry at the wrong (or
+    no) terminal for a card PIN/touch prompt, which fails silently and
+    looks exactly like an unexplained decryption failure. _base_env()
+    must always override it with this invocation's own terminal.
+    """
+
+    def test_sets_gpg_tty_from_the_controlling_terminal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("sgpg.crypto.gpg._controlling_tty", lambda: "/dev/ttys999")
+        monkeypatch.setenv("GPG_TTY", "/dev/ttys000-stale")
+        gpg = GPG(binary="gpg")
+        assert gpg._base_env()["GPG_TTY"] == "/dev/ttys999"
+
+    def test_leaves_gpg_tty_alone_when_no_controlling_terminal_is_found(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("sgpg.crypto.gpg._controlling_tty", lambda: None)
+        monkeypatch.delenv("GPG_TTY", raising=False)
+        gpg = GPG(binary="gpg")
+        assert "GPG_TTY" not in gpg._base_env()
+
+
 @pytest.mark.asyncio
 async def test_encrypt_decrypt_round_trip(gpg_adapter: GPG, self_fingerprint: str) -> None:
     plaintext = b"the deploy finished, ship it"

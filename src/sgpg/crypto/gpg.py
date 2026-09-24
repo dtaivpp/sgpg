@@ -19,6 +19,7 @@ import asyncio
 import os
 import re
 import shutil
+import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -92,6 +93,29 @@ def zero(buf: bytearray) -> None:
     """
     for i in range(len(buf)):
         buf[i] = 0
+
+
+def _controlling_tty() -> str | None:
+    """Best-effort concrete device path for this process's own terminal.
+
+    Tries stdin/stdout/stderr in turn (whichever is still a real tty --
+    Textual keeps stdin as the real terminal even in raw mode, but a
+    piped stdin with an interactive stdout is also possible). Deliberately
+    does *not* fall back to `os.ctermid()`/`/dev/tty`: that generic alias
+    resolves relative to whichever process opens it, so a value taken
+    here and handed to gpg-agent's pinentry (a different process, often a
+    backgrounded daemon with no controlling terminal of its own) would
+    resolve to the wrong thing rather than to *our* terminal. Returns
+    None rather than a misleading path if no concrete tty is available
+    (e.g. under a test runner or CI) -- callers should leave GPG_TTY
+    untouched in that case.
+    """
+    for fd in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            return os.ttyname(fd.fileno())
+        except (OSError, ValueError, AttributeError):
+            continue
+    return None
 
 
 def find_gpg_binary() -> str:
@@ -241,6 +265,17 @@ class GPG:
         env = dict(os.environ)
         if self._gnupghome:
             env["GNUPGHOME"] = self._gnupghome
+        # A missing or stale GPG_TTY (e.g. inherited from a shell that
+        # never exported it, or from a now-closed terminal) makes gpg
+        # tell gpg-agent the wrong tty for a card PIN/touch prompt --
+        # pinentry then fails to open it and gpg-agent gives up without
+        # ever visibly prompting, which looks exactly like a silent
+        # decryption failure. Always point it at *this* invocation's own
+        # controlling terminal instead of trusting whatever the calling
+        # shell happened to export.
+        tty = _controlling_tty()
+        if tty:
+            env["GPG_TTY"] = tty
         # Never let plaintext/secrets leak via env; we don't set anything
         # sensitive here, but we do make the intent explicit.
         return env
