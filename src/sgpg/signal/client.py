@@ -222,11 +222,13 @@ async def _wait_until_reachable(
 async def _stop_daemon(proc: asyncio.subprocess.Process) -> None:
     if proc.returncode is not None:
         return
-    proc.terminate()
+    with contextlib.suppress(ProcessLookupError):
+        proc.terminate()
     try:
         await asyncio.wait_for(proc.wait(), timeout=5.0)
     except TimeoutError:
-        proc.kill()
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
         await proc.wait()
 
 

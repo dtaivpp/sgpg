@@ -11,17 +11,22 @@ every time a conversation is opened.
 from __future__ import annotations
 
 import asyncio
-from contextlib import AsyncExitStack
+import contextlib
+import logging
+from collections.abc import Iterator
+from contextlib import AsyncExitStack, contextmanager
 from pathlib import Path
 from typing import ClassVar
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import BindingType
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Label, ListView
 
 from sgpg.app import SgpgApp
 from sgpg.contacts.store import ContactStore
+from sgpg.crypto import card as card_module
+from sgpg.crypto.card import CardRelearnError, GPGConnectAgentNotFoundError
 from sgpg.crypto.gpg import GPG, zero
 from sgpg.history import MetadataStore
 from sgpg.signal.client import (
@@ -80,7 +85,10 @@ Composer {
 class SgpgTUI(App[None]):
     CSS = _CSS
     TITLE = "sgpg"
-    BINDINGS: ClassVar[list[BindingType]] = [("ctrl+q", "quit", "Quit")]
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("ctrl+q", "quit", "Quit"),
+        ("ctrl+r", "retry_decrypt", "Retry decryption"),
+    ]
 
     def __init__(
         self,
@@ -150,13 +158,42 @@ class SgpgTUI(App[None]):
     async def on_unmount(self) -> None:
         if self._receive_task is not None:
             self._receive_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._receive_task
         # Reverse of entry order: closes the RPC connection before
         # stopping the daemon we might own, so we never kill the daemon
-        # out from under a still-open client.
-        await self._exit_stack.aclose()
+        # out from under a still-open client. An exception here must
+        # never escape on_unmount -- that would interrupt Textual's own
+        # shutdown sequence and could leave the terminal in raw mode.
+        try:
+            await self._exit_stack.aclose()
+        except Exception:
+            logging.getLogger(__name__).warning("error while shutting down Signal connection")
 
     def _set_status(self, text: str) -> None:
         self.query_one("#status", Label).update(text)
+
+    @contextmanager
+    def _yield_terminal_to_gpg(self) -> Iterator[None]:
+        """Hand the terminal to gpg-agent's pinentry for the duration.
+
+        A card decrypt can pop a pinentry-curses PIN/touch prompt that
+        draws directly on the controlling terminal -- the same terminal
+        Textual is holding in raw/alt-screen mode. Without yielding it
+        first, the two fight over the tty: the screen looks frozen until
+        a resize forces Textual to repaint, and the PIN/touch prompt can
+        be garbled badly enough that it never actually reaches the card,
+        so decryption keeps failing even once the key is back in. This
+        is the same App.suspend() trick Textual recommends for shelling
+        out to $EDITOR. Falls back to running un-suspended (e.g. under
+        the headless test driver, or a Textual driver that can't
+        suspend) rather than failing the decrypt outright.
+        """
+        try:
+            with self.suspend():
+                yield
+        except SuspendNotSupported:
+            yield
 
     async def _receive_loop(self) -> None:
         if self._sgpg is None or self._sgpg.signal is None:
@@ -175,12 +212,23 @@ class SgpgTUI(App[None]):
         self.sub_title = name
         await self._render_contact(name)
 
-    async def _render_contact(self, name: str) -> None:
+    async def _render_contact(self, name: str) -> int:
+        """Re-decrypt and re-render `name`'s history from scratch.
+
+        There is no cached plaintext or cached failure anywhere in this
+        stack (see SgpgApp.read()), so simply calling this again -- via
+        action_retry_decrypt, a new incoming message, or reopening the
+        contact -- re-attempts decryption for every message, including
+        ones that failed last time (e.g. because a smartcard reader was
+        unplugged). Returns the number of messages that still failed.
+        """
         if self._sgpg is None:
-            return
+            return 0
         conversation = self.query_one("#conversation", ConversationView)
         conversation.clear_conversation()
-        rendered = await self._sgpg.read(name, limit=20)
+        with self._yield_terminal_to_gpg():
+            rendered = await self._sgpg.read(name, limit=20)
+        still_failing = 0
         try:
             for msg in rendered:
                 if msg.decrypted is not None:
@@ -194,11 +242,49 @@ class SgpgTUI(App[None]):
                         who=who, text=text, mine=msg.direction == "outgoing", badge=badge
                     )
                 else:
+                    still_failing += 1
                     conversation.add_system(f"<{msg.error or 'undecryptable message'}>")
         finally:
             for msg in rendered:
                 if msg.decrypted is not None:
                     msg.decrypted.wipe()
+        return still_failing
+
+    def action_retry_decrypt(self) -> None:
+        if self._current_contact is None:
+            self._set_status("no conversation open to retry")
+            return
+        # Dispatch to a worker rather than awaiting inline: key-bound
+        # actions run on the App's single message-processing task, so a
+        # slow gpg/scdaemon round trip (e.g. a card that hasn't been
+        # relearned yet) would otherwise stall all key handling and
+        # rendering until it returned. exclusive=True drops a prior
+        # still-running retry if the user mashes the key again.
+        self.run_worker(self._retry_decrypt(), group="retry-decrypt", exclusive=True)
+
+    async def _retry_decrypt(self) -> None:
+        contact_name = self._current_contact
+        if contact_name is None:
+            return
+        # A YubiKey that was unplugged and replugged doesn't get noticed
+        # by gpg-agent/scdaemon on its own -- it still believes no card
+        # (or the old one) is present until told to relearn. Nudge it
+        # before re-decrypting; this is the same SCD SERIALNO / SCD LEARN
+        # sequence as `sgpg card learn`. Best-effort: a missing
+        # gpg-connect-agent or a failed relearn shouldn't block the
+        # decrypt retry itself, which will surface its own real error.
+        self._set_status("checking smartcard…")
+        try:
+            await card_module.relearn_card()
+        except (CardRelearnError, GPGConnectAgentNotFoundError) as exc:
+            logging.getLogger(__name__).info("card relearn skipped: %s", exc)
+
+        self._set_status("retrying decryption…")
+        still_failing = await self._render_contact(contact_name)
+        if still_failing:
+            self._set_status(f"retried decryption -- {still_failing} message(s) still failing")
+        else:
+            self._set_status("retried decryption -- all messages decrypted")
 
     def on_composer_send_requested(self, event: Composer.SendRequested) -> None:
         self.run_worker(self._send_current())
