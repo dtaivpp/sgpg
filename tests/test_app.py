@@ -82,7 +82,7 @@ async def test_record_incoming_matches_known_contact_and_stores_ciphertext(
         body="SGPG/1\n-----BEGIN PGP MESSAGE-----\nfakebody\n-----END PGP MESSAGE-----",
         is_sync_sent=False,
     )
-    matched = app.record_incoming(incoming)
+    matched = await app.record_incoming(incoming)
     assert matched == "alice"
 
     recent = app.history.recent_messages("alice")
@@ -103,13 +103,18 @@ async def test_record_incoming_ignores_unknown_senders(app: SgpgApp) -> None:
         body="hello",
         is_sync_sent=False,
     )
-    assert app.record_incoming(incoming) is None
+    assert await app.record_incoming(incoming) is None
 
 
 @pytest.mark.asyncio
-async def test_record_incoming_never_stores_ciphertext_for_ordinary_messages(
+async def test_record_incoming_encrypts_ordinary_messages_at_rest(
     app: SgpgApp,
 ) -> None:
+    """An ordinary (non-SGPG) message was never end-to-end encrypted,
+    but its body must still be recoverable -- encrypted to our own
+    identity key before it ever reaches the history store, not
+    verbatim.
+    """
     incoming = IncomingMessage(
         account=None,
         source_uuid=None,
@@ -121,7 +126,49 @@ async def test_record_incoming_never_stores_ciphertext_for_ordinary_messages(
         body="just saying hi, not encrypted",
         is_sync_sent=False,
     )
-    app.record_incoming(incoming)
+    await app.record_incoming(incoming)
+    recent = app.history.recent_messages("alice")
+    assert not recent[0].is_sgpg
+    ciphertext = recent[0].ciphertext_armored
+    assert ciphertext is not None
+    assert "just saying hi" not in ciphertext
+
+    rendered = await app.read("alice", limit=20)
+    (msg,) = rendered
+    assert not msg.is_sgpg
+    assert msg.decrypted is not None
+    assert msg.decrypted.plaintext.decode() == "just saying hi, not encrypted"
+    msg.decrypted.wipe()
+
+
+@pytest.mark.asyncio
+async def test_record_incoming_falls_back_to_metadata_only_without_an_identity(
+    gpg_adapter: GPG, tmp_contacts_path: Path, tmp_history_path: Path, alice_fingerprint: str
+) -> None:
+    """Encrypt-at-rest is best-effort: if there's no identity configured
+    yet to encrypt to, the message must still be recorded (so
+    last-seen/inbox bookkeeping isn't lost) rather than raising out of
+    the receive loop.
+    """
+    contacts = ContactStore(tmp_contacts_path)
+    contacts.add_contact("alice", signal_number="+15551234567", gpg_fingerprint=alice_fingerprint)
+    history = MetadataStore(tmp_history_path)
+    app = SgpgApp(gpg=gpg_adapter, contacts=contacts, history=history, signal=_FakeSignal())  # type: ignore[arg-type]
+
+    incoming = IncomingMessage(
+        account=None,
+        source_uuid=None,
+        source_number="+15551234567",
+        source_name="Alice",
+        destination_uuid=None,
+        destination_number=None,
+        timestamp=3000,
+        body="hi, no identity configured yet",
+        is_sync_sent=False,
+    )
+    matched = await app.record_incoming(incoming)
+    assert matched == "alice"
+
     recent = app.history.recent_messages("alice")
     assert not recent[0].is_sgpg
     assert recent[0].ciphertext_armored is None

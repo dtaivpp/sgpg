@@ -2,7 +2,10 @@
 
 Never writes to a temp file: message text lives only in this widget's
 in-memory buffer until it is handed straight to gpg over stdin (see
-SgpgApp.send), then the widget's own text is cleared.
+SgpgApp.send). The caller clears the widget's text on a successful
+send and deliberately leaves it alone on failure (e.g. a message too
+long to send), so a rejected message can be edited and resent instead
+of retyped from scratch.
 """
 
 from __future__ import annotations
@@ -24,8 +27,3 @@ class Composer(TextArea):
 
     def action_send(self) -> None:
         self.post_message(self.SendRequested())
-
-    def take_text(self) -> str:
-        text = self.text
-        self.text = ""
-        return text

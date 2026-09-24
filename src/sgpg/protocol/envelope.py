@@ -23,9 +23,33 @@ from enum import Enum, auto
 
 SGPG_VERSION = 1
 
+# Signal's official clients truncate composed text past this length with
+# no warning (confirmed: a message over 2000 characters arrived with only
+# the first 2000 -- see signalapp/Signal-Desktop#724). Truncating an
+# armored PGP block doesn't just lose the tail of the message the way it
+# would for plain text -- it breaks the checksum/packet structure and
+# makes the whole envelope undecryptable, which looks exactly like an
+# unrelated decryption bug rather than "message too long". Refuse to
+# build an oversized envelope in the first place rather than risk that.
+MAX_ENVELOPE_LENGTH = 2000
+
 _VERSION_LINE_RE = re.compile(r"^SGPG/(\d+)\s*$")
 _ARMOR_BEGIN = "-----BEGIN PGP MESSAGE-----"
 _ARMOR_END = "-----END PGP MESSAGE-----"
+
+
+class MessageTooLargeError(ValueError):
+    """The finished SGPG envelope is too large to send as one Signal message."""
+
+    def __init__(self, length: int, limit: int = MAX_ENVELOPE_LENGTH) -> None:
+        self.length = length
+        self.limit = limit
+        super().__init__(
+            f"encrypted message is {length} characters, over Signal's "
+            f"~{limit}-character limit -- sending it risks silent truncation, "
+            "which would corrupt the encrypted payload beyond repair. "
+            "Shorten the message and try again."
+        )
 
 
 class MessageKind(Enum):
@@ -47,7 +71,10 @@ def wrap(armored_message: str) -> str:
     armored = armored_message.strip()
     if not armored.startswith(_ARMOR_BEGIN):
         raise ValueError("expected an ASCII-armored PGP message block")
-    return f"SGPG/{SGPG_VERSION}\n{armored}\n"
+    envelope = f"SGPG/{SGPG_VERSION}\n{armored}\n"
+    if len(envelope) > MAX_ENVELOPE_LENGTH:
+        raise MessageTooLargeError(len(envelope))
+    return envelope
 
 
 def classify(text: str) -> ClassifiedMessage:

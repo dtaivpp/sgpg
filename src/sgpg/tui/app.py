@@ -199,7 +199,7 @@ class SgpgTUI(App[None]):
         if self._sgpg is None or self._sgpg.signal is None:
             return
         async for message in self._sgpg.signal.messages():
-            contact_name = self._sgpg.record_incoming(message)
+            contact_name = await self._sgpg.record_incoming(message)
             if contact_name and contact_name == self._current_contact:
                 await self._render_contact(contact_name)
 
@@ -233,10 +233,16 @@ class SgpgTUI(App[None]):
             for msg in rendered:
                 if msg.decrypted is not None:
                     text = msg.decrypted.plaintext.decode("utf-8", errors="replace")
-                    badge = "🔐"
-                    sig = msg.decrypted.status.signature
-                    if sig is not None:
-                        badge += " ✓ signed" if sig.valid else " ✗ bad signature"
+                    # Only a genuine SGPG envelope was end-to-end
+                    # encrypted (and possibly signed) by the sender --
+                    # an ordinary message we encrypted at rest for our
+                    # own safekeeping must never look the same as one.
+                    badge = ""
+                    if msg.is_sgpg:
+                        badge = "🔐"
+                        sig = msg.decrypted.status.signature
+                        if sig is not None:
+                            badge += " ✓ signed" if sig.valid else " ✗ bad signature"
                     who = "You" if msg.direction == "outgoing" else name
                     conversation.add_bubble(
                         who=who, text=text, mine=msg.direction == "outgoing", badge=badge
@@ -294,7 +300,7 @@ class SgpgTUI(App[None]):
             self._set_status("no contact selected")
             return
         composer = self.query_one("#composer", Composer)
-        text = composer.take_text()
+        text = composer.text
         if not text.strip():
             return
 
@@ -302,11 +308,23 @@ class SgpgTUI(App[None]):
         try:
             await self._sgpg.send(self._current_contact, plaintext)
         except Exception as exc:
+            # Leave the composer's text in place on failure (e.g. a
+            # message too long to send as one SGPG envelope) so it can
+            # be edited and resent instead of retyped from scratch.
             self._set_status(f"send failed: {exc}")
             return
         finally:
             zero(plaintext)
-        await self._render_contact(self._current_contact)
+        composer.text = ""
+        # Append directly instead of calling _render_contact(): we
+        # already have the plaintext we just sent, so there's nothing
+        # left to decrypt. A full re-render would re-decrypt every
+        # message in the window (extra smartcard round trips for
+        # messages already on screen) and, since that path suspends the
+        # terminal for gpg-agent's pinentry, would visibly flash the
+        # whole TUI closed and reopened on every single send.
+        conversation = self.query_one("#conversation", ConversationView)
+        conversation.add_bubble(who="You", text=text, mine=True, badge="🔐")
 
 
 def run_tui(

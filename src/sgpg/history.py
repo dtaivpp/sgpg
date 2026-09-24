@@ -8,10 +8,13 @@ messages arrive/are sent, and decrypts on demand for display.
 
 What is stored: which contact, direction, the Signal timestamp
 (Signal's de facto message id), whether the message looked like an
-SGPG envelope, and -- only for SGPG envelopes -- the armored ciphertext
-itself. There is deliberately no *plaintext* column anywhere in this
-schema, and non-SGPG (ordinary Signal) messages never get their body
-stored at all, encrypted or not.
+SGPG envelope, and the armored ciphertext -- either the SGPG envelope
+itself, or (for an ordinary Signal message) the body encrypted to our
+own identity key before it ever reaches this store. There is
+deliberately no *plaintext* column anywhere in this schema; an
+ordinary message's ciphertext being absent just means the
+encrypt-at-rest step didn't run (e.g. no identity configured yet at
+the time), not that plaintext was ever considered for storage here.
 """
 
 from __future__ import annotations

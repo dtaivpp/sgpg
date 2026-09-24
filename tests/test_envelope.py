@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from sgpg.protocol.envelope import MessageKind, classify, wrap
+from sgpg.protocol.envelope import (
+    MAX_ENVELOPE_LENGTH,
+    MessageKind,
+    MessageTooLargeError,
+    classify,
+    wrap,
+)
 
 ARMORED = "-----BEGIN PGP MESSAGE-----\n\nhQEMA...fake...\n-----END PGP MESSAGE-----"
 
@@ -17,6 +23,29 @@ def test_wrap_prefixes_version_marker() -> None:
 def test_wrap_rejects_non_armored_input() -> None:
     with pytest.raises(ValueError, match="armored"):
         wrap("just some text, not a pgp message")
+
+
+def test_wrap_rejects_an_envelope_over_the_size_limit() -> None:
+    """Truncating an armored PGP block corrupts its checksum/packet
+    structure and makes it entirely undecryptable -- refuse to build
+    an oversized envelope rather than risk that ever happening.
+    """
+    oversized_armor = (
+        "-----BEGIN PGP MESSAGE-----\n\n" + ("A" * MAX_ENVELOPE_LENGTH) + "\n"
+        "-----END PGP MESSAGE-----"
+    )
+    with pytest.raises(MessageTooLargeError) as exc_info:
+        wrap(oversized_armor)
+    assert exc_info.value.limit == MAX_ENVELOPE_LENGTH
+    assert exc_info.value.length > MAX_ENVELOPE_LENGTH
+
+
+def test_wrap_accepts_an_envelope_right_at_the_size_limit() -> None:
+    armor_overhead = len(wrap("-----BEGIN PGP MESSAGE-----\n\n\n-----END PGP MESSAGE-----"))
+    filler = "A" * (MAX_ENVELOPE_LENGTH - armor_overhead)
+    armored = f"-----BEGIN PGP MESSAGE-----\n\n{filler}\n-----END PGP MESSAGE-----"
+    wrapped = wrap(armored)
+    assert len(wrapped) == MAX_ENVELOPE_LENGTH
 
 
 def test_classify_round_trip() -> None:

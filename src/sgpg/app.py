@@ -8,6 +8,7 @@ duplicating business logic.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 
@@ -37,6 +38,12 @@ class RenderedMessage:
     signal_timestamp: int
     decrypted: DecryptResult | None
     error: str | None
+    # True only for a genuine SGPG/1 envelope -- end-to-end encrypted and
+    # (optionally) signed by the sender. An ordinary Signal message that
+    # we've encrypted at rest for local safekeeping decrypts the same
+    # way but was never end-to-end protected, so callers must render it
+    # distinctly (e.g. no lock badge) rather than let it look verified.
+    is_sgpg: bool
 
 
 class SgpgApp:
@@ -106,10 +113,20 @@ class SgpgApp:
         )
         return SendReceipt(contact_name=contact_name, signal_timestamp=timestamp, signed=sign)
 
-    def record_incoming(self, message: IncomingMessage) -> str | None:
-        """Classify + persist metadata (and ciphertext, if SGPG) for an
-        incoming or sync-sent message. Returns the matched contact name,
-        or None if the sender/recipient isn't a known contact.
+    async def record_incoming(self, message: IncomingMessage) -> str | None:
+        """Classify + persist metadata for an incoming or sync-sent
+        message. Returns the matched contact name, or None if the
+        sender/recipient isn't a known contact.
+
+        SGPG envelopes store their ciphertext as-is. An ordinary
+        (non-SGPG) message's body is never persisted verbatim -- it's
+        encrypted to our own identity key first, so the local history
+        file never holds a second unencrypted copy of your Signal
+        messages, while still letting it be shown later (see read()).
+        That encryption is best-effort: if it fails (e.g. no identity
+        configured yet), the message is still recorded with no
+        ciphertext, exactly as it always was, rather than losing the
+        contact/timestamp/last-seen bookkeeping over it.
         """
         if message.body is None or message.timestamp is None:
             return None
@@ -123,13 +140,32 @@ class SgpgApp:
 
         classified = classify(message.body)
         is_sgpg = classified.kind is MessageKind.SGPG
+
+        ciphertext_armored: str | None = None
+        if is_sgpg:
+            ciphertext_armored = classified.armored_payload
+        elif classified.kind is MessageKind.ORDINARY:
+            try:
+                own_key = await self.resolver.own_identity_key()
+                result = await self.gpg.encrypt(
+                    bytearray(message.body.encode("utf-8")),
+                    recipient_fingerprint=own_key.fingerprint,
+                    encrypt_to_fingerprint=own_key.fingerprint,
+                )
+                ciphertext_armored = result.ciphertext.decode("ascii")
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "could not encrypt-at-rest an ordinary message from %s; storing metadata only",
+                    contact.name,
+                )
+
         self.history.record_message(
             contact.name,
             direction="outgoing" if message.is_sync_sent else "incoming",
             signal_timestamp=message.timestamp,
             is_sgpg=is_sgpg,
             envelope_kind=classified.kind.name,
-            ciphertext_armored=classified.armored_payload if is_sgpg else None,
+            ciphertext_armored=ciphertext_armored,
         )
         return contact.name
 
@@ -140,13 +176,14 @@ class SgpgApp:
         """
         rendered: list[RenderedMessage] = []
         for meta in self.history.recent_messages(contact_name, limit=limit):
-            if not meta.is_sgpg or meta.ciphertext_armored is None:
+            if meta.ciphertext_armored is None:
                 rendered.append(
                     RenderedMessage(
                         direction=meta.direction,
                         signal_timestamp=meta.signal_timestamp,
                         decrypted=None,
                         error="not an SGPG-encrypted message",
+                        is_sgpg=meta.is_sgpg,
                     )
                 )
                 continue
@@ -159,6 +196,7 @@ class SgpgApp:
                         signal_timestamp=meta.signal_timestamp,
                         decrypted=None,
                         error=str(exc),
+                        is_sgpg=meta.is_sgpg,
                     )
                 )
                 continue
@@ -168,6 +206,7 @@ class SgpgApp:
                     signal_timestamp=meta.signal_timestamp,
                     decrypted=result,
                     error=None,
+                    is_sgpg=meta.is_sgpg,
                 )
             )
         return rendered

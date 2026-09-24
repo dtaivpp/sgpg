@@ -28,6 +28,7 @@ from sgpg.contacts.store import ContactStore, ContactStoreError, DuplicateContac
 from sgpg.crypto import card as card_module
 from sgpg.crypto.gpg import GPG, GPGEncryptionError, GPGNotFoundError, normalize_fingerprint, zero
 from sgpg.history import MetadataStore
+from sgpg.protocol.envelope import MessageTooLargeError
 from sgpg.security import core_dumps_disabled, debug_logging_disabled, harden_process
 from sgpg.signal.client import (
     DaemonStartTimeoutError,
@@ -228,6 +229,9 @@ def send(
                 raise typer.Exit(code=1) from None
             except GPGEncryptionError as exc:
                 err_console.print(f"[red]✗ encryption failed:[/red] {exc}")
+                raise typer.Exit(code=1) from None
+            except MessageTooLargeError as exc:
+                err_console.print(f"[red]✗[/red] {exc}")
                 raise typer.Exit(code=1) from None
             console.print(
                 f"[green]✓[/green] sent to {receipt.contact_name}"
